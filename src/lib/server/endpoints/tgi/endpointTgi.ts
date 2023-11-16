@@ -9,7 +9,7 @@ export const endpointTgiParametersSchema = z.object({
 	model: z.any(),
 	type: z.literal("tgi"),
 	url: z.string().url(),
-	accessToken: z.string().min(1).default(HF_ACCESS_TOKEN),
+	accessToken: z.string().default(HF_ACCESS_TOKEN),
 });
 
 export function endpointTgi({
@@ -23,6 +23,7 @@ export function endpointTgi({
 			webSearch: conversation.messages[conversation.messages.length - 1].webSearch,
 			preprompt: conversation.preprompt,
 			model,
+			id: conversation._id,
 		});
 
 		return textGenerationStream({
