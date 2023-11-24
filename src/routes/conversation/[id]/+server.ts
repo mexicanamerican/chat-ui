@@ -194,19 +194,30 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				if (newUpdate.type !== "stream") {
 					updates.push(newUpdate);
 				}
+
+				if (newUpdate.type === "stream" && newUpdate.token === "") {
+					return;
+				}
 				controller.enqueue(JSON.stringify(newUpdate) + "\n");
+
+				if (newUpdate.type === "finalAnswer") {
+					// 4096 of spaces to make sure the browser doesn't blocking buffer that holding the response
+					controller.enqueue(" ".repeat(4096));
+				}
 			}
 
 			update({ type: "status", status: "started" });
 
-			if (conv.title === "New Chat" && messages.length === 1) {
-				try {
-					conv.title = (await summarize(newPrompt)) ?? conv.title;
-					update({ type: "status", status: "title", message: conv.title });
-				} catch (e) {
-					console.error(e);
+			const summarizeIfNeeded = (async () => {
+				if (conv.title === "New Chat" && messages.length === 1) {
+					try {
+						conv.title = (await summarize(newPrompt)) ?? conv.title;
+						update({ type: "status", status: "title", message: conv.title });
+					} catch (e) {
+						console.error(e);
+					}
 				}
-			}
+			})();
 
 			await collections.conversations.updateOne(
 				{
@@ -312,6 +323,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				text: messages[messages.length - 1].content,
 			});
 
+			await summarizeIfNeeded;
 			return;
 		},
 		async cancel() {
