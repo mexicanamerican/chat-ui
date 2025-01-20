@@ -3,6 +3,20 @@ import { getOIDCUserData, validateAndParseCsrfToken } from "$lib/server/auth";
 import { z } from "zod";
 import { base } from "$app/paths";
 import { updateUser } from "./updateUser";
+import { env } from "$env/dynamic/private";
+import JSON5 from "json5";
+
+const allowedUserEmails = z
+	.array(z.string().email())
+	.optional()
+	.default([])
+	.parse(JSON5.parse(env.ALLOWED_USER_EMAILS));
+
+const allowedUserDomains = z
+	.array(z.string().regex(/\.\w+$/)) // Contains at least a dot
+	.optional()
+	.default([])
+	.parse(JSON5.parse(env.ALLOWED_USER_DOMAINS));
 
 export async function load({ url, locals, cookies, request, getClientAddress }) {
 	const { error: errorName, error_description: errorDescription } = z
@@ -13,13 +27,14 @@ export async function load({ url, locals, cookies, request, getClientAddress }) 
 		.parse(Object.fromEntries(url.searchParams.entries()));
 
 	if (errorName) {
-		throw error(400, errorName + (errorDescription ? ": " + errorDescription : ""));
+		error(400, errorName + (errorDescription ? ": " + errorDescription : ""));
 	}
 
-	const { code, state } = z
+	const { code, state, iss } = z
 		.object({
 			code: z.string(),
 			state: z.string(),
+			iss: z.string().optional(),
 		})
 		.parse(Object.fromEntries(url.searchParams.entries()));
 
@@ -28,10 +43,33 @@ export async function load({ url, locals, cookies, request, getClientAddress }) 
 	const validatedToken = await validateAndParseCsrfToken(csrfToken, locals.sessionId);
 
 	if (!validatedToken) {
-		throw error(403, "Invalid or expired CSRF token");
+		error(403, "Invalid or expired CSRF token");
 	}
 
-	const { userData } = await getOIDCUserData({ redirectURI: validatedToken.redirectUrl }, code);
+	const { userData } = await getOIDCUserData(
+		{ redirectURI: validatedToken.redirectUrl },
+		code,
+		iss
+	);
+
+	// Filter by allowed user emails or domains
+	if (allowedUserEmails.length > 0 || allowedUserDomains.length > 0) {
+		if (!userData.email) {
+			error(403, "User not allowed: email not returned");
+		}
+		const emailVerified = userData.email_verified ?? true;
+		if (!emailVerified) {
+			error(403, "User not allowed: email not verified");
+		}
+
+		const emailDomain = userData.email.split("@")[1];
+		const isEmailAllowed = allowedUserEmails.includes(userData.email);
+		const isDomainAllowed = allowedUserDomains.includes(emailDomain);
+
+		if (!isEmailAllowed && !isDomainAllowed) {
+			error(403, "User not allowed");
+		}
+	}
 
 	await updateUser({
 		userData,
@@ -41,5 +79,5 @@ export async function load({ url, locals, cookies, request, getClientAddress }) 
 		ip: getClientAddress(),
 	});
 
-	throw redirect(302, `${base}/`);
+	redirect(302, `${base}/`);
 }

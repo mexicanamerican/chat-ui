@@ -1,23 +1,19 @@
+ENV_LOCAL_PATH=/app/.env.local
+
 if test -z "${DOTENV_LOCAL}" ; then
-    if ! test -f "/app/.env.local" ; then
-        echo "DOTENV_LOCAL was not found in the ENV variables and .env.local is not set using a bind volume. We are using the default .env config."
+    if ! test -f "${ENV_LOCAL_PATH}" ; then
+        echo "DOTENV_LOCAL was not found in the ENV variables and .env.local is not set using a bind volume. Make sure to set environment variables properly. "
     fi;
 else
     echo "DOTENV_LOCAL was found in the ENV variables. Creating .env.local file."
-    cat <<< "$DOTENV_LOCAL" > /app/.env.local
+    cat <<< "$DOTENV_LOCAL" > ${ENV_LOCAL_PATH}
 fi;
 
 if [ "$INCLUDE_DB" = "true" ] ; then
-    echo "INCLUDE_DB is set to true. Appending MONGODB_URL"
-
-    touch /app/.env.local
-    echo -e "\nMONGODB_URL=mongodb://localhost:27017" >> /app/.env.local
-
-    mkdir -p /data/db
-    mongod &
     echo "Starting local MongoDB instance"
-
+    nohup mongod &
 fi;
 
-npm run build
-npm run preview -- --host 0.0.0.0 --port 3000
+export PUBLIC_VERSION=$(node -p "require('./package.json').version")
+
+dotenv -e /app/.env -c -- node /app/build/index.js -- --host 0.0.0.0 --port 3000
